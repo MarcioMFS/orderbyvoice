@@ -1,5 +1,5 @@
 import re
-from database import fetch_products, fetch_synonyms
+import database
 
 def normalize(text):
     """
@@ -12,22 +12,26 @@ def detect_removed_ingredients(text, product):
     Detecta ingredientes que o cliente quer remover do produto.
     :param text: Texto do pedido.
     :param product: Dicionário do produto com a lista de ingredientes.
-    :return: Lista de ingredientes removidos.
+    :return: Lista de ingredientes removidos (sem repetições).
     """
     removal_phrases = ["sem", "não quero", "pode tirar", "tire", "retire"]
-    removed_ingredients = []
+    removed_ingredients = set()  # Usar um conjunto para evitar duplicatas
 
     for phrase in removal_phrases:
         if phrase in text.lower():
             for ingredient in product["ingredientes"]:
                 if ingredient.lower() in text.lower():
-                    removed_ingredients.append(ingredient)
+                    removed_ingredients.add(ingredient)  # Adiciona ao conjunto
 
-    return removed_ingredients
+    return list(removed_ingredients)  # Converte de volta para lista
 
 def process_order(text, products, synonyms):
     """
     Processa o pedido com base no texto recebido.
+    :param text: Texto do pedido.
+    :param products: Lista de produtos disponíveis.
+    :param synonyms: Dicionário de sinônimos por produto.
+    :return: Lista de itens do pedido com detalhes.
     """
     order = []
     text = text.lower()
@@ -40,9 +44,38 @@ def process_order(text, products, synonyms):
 
             # Adicionar produto ao pedido
             order.append({
+                "produto_id": product["id"],  # Incluindo produto_id
                 "produto": product["nome"],
-                "quantidade": 1,  # Padrão
+                "quantidade": 1,  # Quantidade padrão, pode ser ajustada
                 "ingredientes_removidos": removed_ingredients
             })
 
     return order
+
+
+import re
+
+def extrair_informacoes(texto):
+    """
+    Extrai informações do texto fornecido pelo cliente.
+    """
+    # Regex para telefone (exemplo: 11933624809 ou (11) 93362-4809)
+    telefone_regex = r'\b\d{2}9?\d{4}-?\d{4}\b'
+    telefone = re.search(telefone_regex, texto)
+    telefone = telefone.group(0) if telefone else None
+
+    # Regex para nome
+    nome_regex = r'\bmeu nome é ([a-zá-ú ]+)\b'
+    nome_match = re.search(nome_regex, texto, re.IGNORECASE)
+    nome = nome_match.group(1).strip() if nome_match else None
+
+    # Detectar intenção (simples exemplo, pode ser expandido)
+    if "quero fazer um pedido" in texto.lower():
+        intencao = "fazer_pedido"
+    elif "quero saber" in texto.lower():
+        intencao = "consultar_informacoes"
+    else:
+        intencao = "indefinido"
+
+    return {"nome": nome, "telefone": telefone, "intencao": intencao}
+
