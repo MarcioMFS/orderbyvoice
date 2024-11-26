@@ -4,7 +4,7 @@ import sqlite3
 from flask import Blueprint, jsonify, request
 
 
-clientes_bp = Blueprint("pedidos", __name__)
+clientes_bp = Blueprint("clientes", __name__)
 
 def connect_db():
     return sqlite3.connect("inventory.db")
