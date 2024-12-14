@@ -16,7 +16,7 @@ def connect_db():
     """
     Conecta ao banco de dados SQLite.
     """
-    return sqlite3.connect("inventory.db")
+    return sqlite3.connect("orderbyvoice.db")
 
 @app.route('/')
 def home():

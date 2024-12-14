@@ -1,15 +1,205 @@
 import os
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, json, request, jsonify
 import whisper
 import spacy
 from database import Database
 from services.order_processor import process_order
+from services.audio_manager import AudioManager
+from services.text_to_speech import TextToSpeech
 
 pedidos_bp = Blueprint("pedidos", __name__)
 
 # Inicializar os modelos
 whisper_model = whisper.load_model("small", device="cpu")  # "base" é leve para testes
 nlp = spacy.load("pt_core_news_sm")
+
+
+pedidos_bp = Blueprint('pedidos', __name__)
+
+@pedidos_bp.route('/audio', methods=['POST'])
+def process_audio_order():
+    """
+    Rota para processar pedidos via áudio.
+    """
+    audio_manager = AudioManager(model_size="base", device="cpu")
+    transcription = audio_manager.process_audio(duration=10)  # Captura 10 segundos de áudio
+    # Lógica para processar a transcrição e converter em pedido
+    informacoes = extrair_informacoes(transcription)
+    nome = informacoes.get("nome")
+    telefone = informacoes.get("telefone")
+    endereco = informacoes.get("endereco")
+
+    if not telefone:
+        return jsonify({"error": "Telefone não identificado no áudio."}), 400
+
+    conn = Database.connect()
+    cursor = conn.cursor()
+
+    # Verificar ou criar cliente no banco de dados
+    cursor.execute("SELECT id FROM clientes WHERE telefone = ?", (telefone,))
+    cliente = cursor.fetchone()
+
+    if not cliente:
+        if not nome:
+            return jsonify({"error": "Nome não identificado no áudio e cliente não existe."}), 400
+        cursor.execute("INSERT INTO clientes (nome, telefone, endereco) VALUES (?, ?, ?)", (nome, telefone, endereco))
+        conn.commit()
+        cliente_id = cursor.lastrowid
+    else:
+        cliente_id = cliente[0]
+
+    # Processar pedido
+    products = Database.fetch_product_details()
+    synonyms = Database.fetch_synonyms()
+    pedido_processado = process_order(transcription, products, synonyms)
+
+    # Criar pedido no banco
+    cursor.execute("INSERT INTO pedidos (id_cliente) VALUES (?)", (cliente_id,))
+    conn.commit()
+    pedido_id = cursor.lastrowid
+
+    for item in pedido_processado:
+        # Certifique-se de que produto_id existe no item
+        if "produto_id" not in item:
+            return jsonify({"error": "produto_id não encontrado para o item processado."}), 400
+
+        cursor.execute('''
+            INSERT INTO itens_pedido (id_pedido, produto, quantidade)
+            VALUES (?, ?, ?)
+        ''', (pedido_id, item["produto"], item["quantidade"]))
+
+        for ingrediente in item.get("ingredientes_removidos", []):
+            cursor.execute('''
+                INSERT INTO removable_ingredients (produto_id, pedido_id, ingrediente)
+                VALUES (?, ?, ?)
+            ''', (item["produto_id"], pedido_id, ingrediente))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "message": "Pedido processado com sucesso.",
+        "cliente": {"id": cliente_id, "nome": nome, "telefone": telefone, "endereco": endereco},
+        "pedido_id": pedido_id,
+        "itens": pedido_processado
+    }), 201
+    
+    
+@pedidos_bp.route('/audio/conversa', methods=['POST'])
+def conversa_interativa():
+    """
+    Rota para uma conversa interativa com persistência do estado do pedido.
+    """
+    audio_manager = AudioManager()
+    tts = TextToSpeech()
+
+    try:
+        # Captura e transcreve o áudio
+        transcription = audio_manager.process_audio(duration=10)
+        print(f"Transcrição: {transcription}")
+
+        # Conectar ao banco de dados
+        conn = Database.connect()
+        cursor = conn.cursor()
+
+        # Verifica se há um pedido em progresso
+        cursor.execute(
+            "SELECT * FROM pedido_estado WHERE status NOT IN ('finalizado') ORDER BY updated_at DESC LIMIT 1"
+        )
+        estado = cursor.fetchone()
+
+        # Se não houver estado, inicia um novo
+        if not estado:
+            response_text = "Olá! Parece que você é novo. Diga seu nome e telefone para começarmos."
+            cursor.execute(
+                "INSERT INTO pedido_estado (status) VALUES ('iniciado')"
+            )
+            conn.commit()
+            tts.speak(response_text)
+            return jsonify({"message": response_text}), 200
+
+        # Se houver um estado, atualize com base na transcrição
+        estado_id = estado[0]
+        status = estado[3]  # Coluna `status`
+        itens = estado[4] or "[]"  # Coluna `itens`
+
+        # Extração de informações
+        informacoes = extrair_informacoes(transcription)
+        nome = informacoes.get("nome")
+        telefone = informacoes.get("telefone")
+        endereco = informacoes.get("endereco")
+
+        if status == "iniciado":
+            if not telefone:
+                response_text = "Por favor, diga seu telefone para continuar."
+                tts.speak(response_text)
+                return jsonify({"message": response_text}), 200
+
+            cursor.execute(
+                "UPDATE pedido_estado SET cliente_telefone = ?, status = 'aguardando_cliente' WHERE id = ?",
+                (telefone, estado_id)
+            )
+            conn.commit()
+
+            response_text = "Obrigado! Agora, por favor, diga seu endereço completo."
+            tts.speak(response_text)
+            return jsonify({"message": response_text}), 200
+
+        if status == "aguardando_cliente":
+            if not endereco:
+                response_text = "Desculpe, não consegui entender seu endereço. Pode repetir?"
+                tts.speak(response_text)
+                return jsonify({"message": response_text}), 200
+
+            cursor.execute(
+                "UPDATE pedido_estado SET cliente_endereco = ?, status = 'em_progresso' WHERE id = ?",
+                (endereco, estado_id)
+            )
+            conn.commit()
+
+            response_text = "Tudo pronto! Qual é o seu pedido?"
+            tts.speak(response_text)
+            return jsonify({"message": response_text}), 200
+
+        if status == "em_progresso":
+            products = Database.fetch_product_details()
+            synonyms = Database.fetch_synonyms()
+            pedido_processado = process_order(transcription, products, synonyms)
+
+            # Atualiza itens no estado do pedido
+            itens_atualizados = json.dumps(pedido_processado)
+            cursor.execute(
+                "UPDATE pedido_estado SET itens = ? WHERE id = ?",
+                (itens_atualizados, estado_id)
+            )
+            conn.commit()
+
+            response_text = "Seu pedido foi adicionado. Algo mais?"
+            tts.speak(response_text)
+            return jsonify({"message": response_text, "itens": pedido_processado}), 200
+
+        if status == "finalizado":
+            response_text = "Seu pedido já foi finalizado. Obrigado por usar nossos serviços!"
+            tts.speak(response_text)
+            return jsonify({"message": response_text}), 200
+
+    except Exception as e:
+        print(f"Erro: {e}")
+        return jsonify({"error": "Ocorreu um erro durante o processamento do áudio."}), 500
+
+    finally:
+        conn.close()
+
+
+@pedidos_bp.route('/test_audio', methods=['POST'])
+def test_audio():
+    """
+    Rota para capturar e transcrever áudio do microfone.
+    """
+    audio_manager = AudioManager()
+    transcription = audio_manager.process_audio(duration=10)  # Captura 10 segundos de áudio
+    return jsonify({"transcription": transcription}), 200
+
 
 def transcrever_audio_whisper(audio_file):
     """
