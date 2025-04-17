@@ -1,11 +1,16 @@
 import os
 import sqlite3
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from controllers.pedidos import pedidos_bp
 from controllers.clientes import clientes_bp
+from services.text_to_speech import TextToSpeech
 
 # Configuração do app Flask
 app = Flask(__name__)
+
+@app.route('/interface_teste/<path:path>')
+def serve_interface(path):
+    return send_from_directory('interface_teste', path)
 
 # Registrar os blueprints
 app.register_blueprint(clientes_bp, url_prefix='/clientes')

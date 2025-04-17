@@ -1,11 +1,13 @@
 import re
 import database
 
+
 def normalize(text):
     """
     Remove pontuações, espaços extras e converte para minúsculas.
     """
     return re.sub(r'[^a-z0-9]', '', text.lower())
+
 
 def detect_removed_ingredients(text, product):
     """
@@ -24,6 +26,7 @@ def detect_removed_ingredients(text, product):
                     removed_ingredients.add(ingredient)  # Adiciona ao conjunto
 
     return list(removed_ingredients)  # Converte de volta para lista
+
 
 def process_order(text, products, synonyms):
     """
@@ -53,14 +56,14 @@ def process_order(text, products, synonyms):
     return order
 
 
-import re
-
 def extrair_informacoes(texto):
     """
     Extrai informações do texto fornecido pelo cliente.
+    :param texto: String contendo as informações do cliente.
+    :return: Dicionário com nome, telefone e intenção.
     """
     # Regex para telefone (exemplo: 11933624809 ou (11) 93362-4809)
-    telefone_regex = r'\b\d{2}9?\d{4}-?\d{4}\b'
+    telefone_regex = r'\(?\d{2}\)?\s?\d{4,5}-?\d{4}'
     telefone = re.search(telefone_regex, texto)
     telefone = telefone.group(0) if telefone else None
 
@@ -78,4 +81,3 @@ def extrair_informacoes(texto):
         intencao = "indefinido"
 
     return {"nome": nome, "telefone": telefone, "intencao": intencao}
-
