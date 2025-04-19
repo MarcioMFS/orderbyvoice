@@ -1,0 +1,9 @@
+@echo off
+echo Ativando ambiente virtual...
+call venv\Scripts\activate
+
+echo Rodando testes...
+pytest tests/ -v --cov=src --cov-report=term-missing
+
+echo Desativando ambiente virtual...
+deactivate 

@@ -1,83 +1,79 @@
+# -*- coding: utf-8 -*-
+"""
+Order processing service for handling order-related operations.
+"""
+
 import re
-import database
+from typing import Dict, List, Any, Optional
 
-
-def normalize(text):
+def extrair_informacoes(texto: str) -> Dict[str, str]:
     """
-    Remove pontuações, espaços extras e converte para minúsculas.
+    Extrai informações do cliente a partir do texto transcrito.
+    
+    Args:
+        texto: Texto transcrito do áudio
+        
+    Returns:
+        Dict com informações extraídas (nome, telefone, endereco)
     """
-    return re.sub(r'[^a-z0-9]', '', text.lower())
+    informacoes = {
+        "nome": "",
+        "telefone": "",
+        "endereco": ""
+    }
+    
+    # Extrair telefone
+    telefone_match = re.search(r'(\d{2})[\s\-]?(\d{5})[\s\-]?(\d{4})', texto)
+    if telefone_match:
+        informacoes["telefone"] = f"{telefone_match.group(1)}{telefone_match.group(2)}{telefone_match.group(3)}"
+    
+    # Extrair nome (assume que o nome vem antes do telefone)
+    if telefone_match:
+        nome_text = texto[:telefone_match.start()].strip()
+        if nome_text:
+            informacoes["nome"] = nome_text
+    
+    # Extrair endereço (assume que o endereço vem depois do telefone)
+    if telefone_match:
+        endereco_text = texto[telefone_match.end():].strip()
+        if endereco_text:
+            informacoes["endereco"] = endereco_text
+    
+    return informacoes
 
-
-def detect_removed_ingredients(text, product):
+def process_order(texto: str, products: Dict[str, float], synonyms: Dict[str, str]) -> Optional[List[Dict[str, Any]]]:
     """
-    Detecta ingredientes que o cliente quer remover do produto.
-    :param text: Texto do pedido.
-    :param product: Dicionário do produto com a lista de ingredientes.
-    :return: Lista de ingredientes removidos (sem repetições).
+    Processa o texto do pedido e retorna os itens identificados.
+    
+    Args:
+        texto: Texto transcrito do pedido
+        products: Dicionário de produtos e preços
+        synonyms: Dicionário de sinônimos para produtos
+        
+    Returns:
+        Lista de itens do pedido ou None se não conseguir processar
     """
-    removal_phrases = ["sem", "não quero", "pode tirar", "tire", "retire"]
-    removed_ingredients = set()  # Usar um conjunto para evitar duplicatas
-
-    for phrase in removal_phrases:
-        if phrase in text.lower():
-            for ingredient in product["ingredientes"]:
-                if ingredient.lower() in text.lower():
-                    removed_ingredients.add(ingredient)  # Adiciona ao conjunto
-
-    return list(removed_ingredients)  # Converte de volta para lista
-
-
-def process_order(text, products, synonyms):
-    """
-    Processa o pedido com base no texto recebido.
-    :param text: Texto do pedido.
-    :param products: Lista de produtos disponíveis.
-    :param synonyms: Dicionário de sinônimos por produto.
-    :return: Lista de itens do pedido com detalhes.
-    """
-    order = []
-    text = text.lower()
-
-    for product in products:
-        # Verificar se o nome ou sinônimo está no texto
-        if product["nome"].lower() in text or any(sin.lower() in text for sin in synonyms.get(product["id"], [])):
-            # Detectar ingredientes removidos
-            removed_ingredients = detect_removed_ingredients(text, product)
-
-            # Adicionar produto ao pedido
-            order.append({
-                "produto_id": product["id"],  # Incluindo produto_id
-                "produto": product["nome"],
-                "quantidade": 1,  # Quantidade padrão, pode ser ajustada
-                "ingredientes_removidos": removed_ingredients
+    itens = []
+    texto = texto.lower()
+    
+    # Substituir sinônimos
+    for sin, prod in synonyms.items():
+        texto = texto.replace(sin.lower(), prod.lower())
+    
+    # Procurar por produtos e quantidades
+    for produto, preco in products.items():
+        produto = produto.lower()
+        if produto in texto:
+            # Tentar extrair quantidade
+            quantidade = 1
+            qtd_match = re.search(rf'(\d+)\s*{produto}', texto)
+            if qtd_match:
+                quantidade = int(qtd_match.group(1))
+            
+            itens.append({
+                "produto": produto,
+                "quantidade": quantidade,
+                "preco": preco
             })
-
-    return order
-
-
-def extrair_informacoes(texto):
-    """
-    Extrai informações do texto fornecido pelo cliente.
-    :param texto: String contendo as informações do cliente.
-    :return: Dicionário com nome, telefone e intenção.
-    """
-    # Regex para telefone (exemplo: 11933624809 ou (11) 93362-4809)
-    telefone_regex = r'\(?\d{2}\)?\s?\d{4,5}-?\d{4}'
-    telefone = re.search(telefone_regex, texto)
-    telefone = telefone.group(0) if telefone else None
-
-    # Regex para nome
-    nome_regex = r'\bmeu nome é ([a-zá-ú ]+)\b'
-    nome_match = re.search(nome_regex, texto, re.IGNORECASE)
-    nome = nome_match.group(1).strip() if nome_match else None
-
-    # Detectar intenção (simples exemplo, pode ser expandido)
-    if "quero fazer um pedido" in texto.lower():
-        intencao = "fazer_pedido"
-    elif "quero saber" in texto.lower():
-        intencao = "consultar_informacoes"
-    else:
-        intencao = "indefinido"
-
-    return {"nome": nome, "telefone": telefone, "intencao": intencao}
+    
+    return itens if itens else None 

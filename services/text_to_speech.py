@@ -1,52 +1,44 @@
-from gtts import gTTS
-from pydub import AudioSegment
-from pydub.playback import play
-import tempfile
-import os
+# -*- coding: utf-8 -*-
+"""
+Text-to-speech service for converting text to audio.
+"""
 
-from gtts import gTTS
-from pydub import AudioSegment
-from pydub.playback import play
-import tempfile
-import os
+import pyttsx3
+from typing import Optional
 
 class TextToSpeech:
-    def speak(self, text):
+    """Service for converting text to speech."""
+    
+    def __init__(self):
+        """Initialize the text-to-speech engine."""
+        self.engine = pyttsx3.init()
+        self.engine.setProperty('rate', 150)  # Velocidade da fala
+        self.engine.setProperty('volume', 0.9)  # Volume (0.0 a 1.0)
+    
+    def speak(self, text: str) -> None:
         """
-        Gera e reproduz um áudio WAV diretamente a partir do texto.
+        Convert text to speech and play it.
+        
+        Args:
+            text: Text to be spoken
         """
-        temp_mp3 = None
-        temp_wav = None
-
-        try:
-            # Criar arquivos temporários únicos
-            temp_mp3 = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-            temp_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        self.engine.say(text)
+        self.engine.runAndWait()
+    
+    def save_to_file(self, text: str, filename: str) -> bool:
+        """
+        Convert text to speech and save to a file.
+        
+        Args:
+            text: Text to be spoken
+            filename: Path to save the audio file
             
-            # Gerar áudio com gTTS e salvar como MP3
-            tts = gTTS(text, lang="pt")
-            tts.save(temp_mp3.name)
-
-            # Converter de MP3 para WAV
-            audio = AudioSegment.from_mp3(temp_mp3.name)
-            audio.export(temp_wav.name, format="wav")
-
-            # Reproduzir o arquivo WAV
-            audio_to_play = AudioSegment.from_wav(temp_wav.name)
-            play(audio_to_play)
-
-        except Exception as e:
-            print(f"Erro ao gerar ou reproduzir o áudio: {e}")
-
-        finally:
-            # Garantir que os arquivos temporários sejam removidos
-            if temp_mp3:
-                try:
-                    os.unlink(temp_mp3.name)
-                except Exception as e:
-                    print(f"Erro ao remover o arquivo temporário MP3: {e}")
-            if temp_wav:
-                try:
-                    os.unlink(temp_wav.name)
-                except Exception as e:
-                    print(f"Erro ao remover o arquivo temporário WAV: {e}")
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            self.engine.save_to_file(text, filename)
+            self.engine.runAndWait()
+            return True
+        except Exception:
+            return False 

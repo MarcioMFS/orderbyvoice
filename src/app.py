@@ -5,15 +5,13 @@ A Flask-based application for voice-based order processing.
 """
 
 import os
-import click
 from flask import Flask
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
-from config.settings import Config
-from controllers.pedidos import pedidos_bp
-from controllers.clientes import clientes_bp
-from core.database import init_db
+from src.config.settings import Config
+from src.api.routes import register_routes
+from src.cli import init_app as init_cli
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -37,22 +35,17 @@ def create_app(config_class=Config):
     # Initialize database
     db.init_app(app)
     
-    # Register blueprints
-    app.register_blueprint(pedidos_bp, url_prefix='/api/v1')
-    app.register_blueprint(clientes_bp, url_prefix='/api/v1')
+    # Register routes
+    register_routes(app)
+    
+    # Register CLI commands
+    init_cli(app)
     
     # Create necessary directories
     os.makedirs(app.config['TEMP_DIR'], exist_ok=True)
-    
-    # Register CLI commands
-    @app.cli.command('init-db')
-    def init_db_command():
-        """Initialize the database."""
-        init_db()
-        click.echo('Initialized the database.')
     
     return app
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True)
+    app.run(debug=True) 
